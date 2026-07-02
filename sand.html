@@ -152,6 +152,13 @@ function neighborsFor(theta){
   else { downhill=b; uphill=a; }
   return { primary:DIRS[best], downhill:DIRS[downhill], uphill:DIRS[uphill] };
 }
+// the two grid directions most aligned with vector (vx,vy)
+function bestDirs(vx,vy){
+  let i1=0,i2=0,d1=-1e9,d2=-1e9;
+  for(let i=0;i<8;i++){ const dp=DIRS[i][0]*vx+DIRS[i][1]*vy;
+    if(dp>d1){ d2=d1; i2=i1; d1=dp; i1=i; } else if(dp>d2){ d2=dp; i2=i; } }
+  return [DIRS[i1], DIRS[i2]];
+}
 // gravity (gx,gy) and the perpendicular "surface" direction (pxu,pyu), refreshed each step
 let gx=0, gy=1, pxu=-1, pyu=0;
 // shallowest sand depth along gravity, per perpendicular lane (the surface profile)
@@ -173,9 +180,8 @@ function step(){
   const N = neighborsFor(A);
   let r=((A%45)+45)%45; if(r>22.5) r-=45;
   const pDown = 0.5 + 0.5*Math.min(1, Math.abs(r)/22.5);   // lean toward the low side
-  const highYfirst = sgy>0 ? true : (sgy<0 ? false : (Math.random()<0.5));
+  const highYfirst = sgy>0 ? true : (sgy<0 ? false : true);  // steady scan when gravity is sideways
   const upx=Math.round(-gx), upy=Math.round(-gy);          // toward the surface (opposite gravity)
-  const pstepx=Math.round(pxu), pstepy=Math.round(pyu);    // one step along the surface
   for(let yi=0;yi<H;yi++){
     const y = highYfirst ? (H-1-yi) : yi;
     const rowHighX = sgx>0 ? true : (sgx<0 ? false : (Math.random()<0.5));
@@ -206,17 +212,22 @@ function step(){
       const qA=q0+REACH, qB=q0-REACH;
       const dA=(qA>=0&&qA<QLEN)?minD[qA]:Infinity;
       const dB=(qB>=0&&qB<QLEN)?minD[qB]:Infinity;
-      const order = dA>=dB ? [[1,dA],[-1,dB]] : [[-1,dB],[1,dA]];    // slide toward the lower side
-      for(let o=0;o<2;o++){
-        const s=order[o][0], dn=order[o][1];
-        if(dn - d0 > MAXDROP){                     // that side is too steep -> slide along surface
-          const nx=x+s*pstepx, ny=y+s*pstepy;
-          if(nx<0||nx>=W||ny<0||ny>=H) continue;
-          const nidx=ny*W+nx;
-          if(grid[nidx]===EMPTY && !moved[nidx]){
-            grid[nidx]=SAND; shade[nidx]=shade[idx]; moved[nidx]=1;
-            grid[idx]=EMPTY;
-            break;
+      const order = dA>=dB ? [1,-1] : [-1,1];    // slide toward the lower side
+      let done=false;
+      for(let o=0;o<2 && !done;o++){
+        const s=order[o], dn=(s>0?dA:dB);
+        if(dn - d0 > MAXDROP){                     // that side is too steep -> slide along the surface
+          const dirs=bestDirs(s*pxu, s*pyu);
+          for(let k=0;k<2;k++){
+            const nx=x+dirs[k][0], ny=y+dirs[k][1];
+            if(nx<0||nx>=W||ny<0||ny>=H) continue;
+            if(nx*gx+ny*gy < d0) continue;          // never move against gravity (no flowing up)
+            const nidx=ny*W+nx;
+            if(grid[nidx]===EMPTY && !moved[nidx]){
+              grid[nidx]=SAND; shade[nidx]=shade[idx]; moved[nidx]=1;
+              grid[idx]=EMPTY; done=true;
+              break;
+            }
           }
         }
       }
