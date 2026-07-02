@@ -29,7 +29,7 @@
     text-shadow:3px 3px 0 var(--gold-dk), 6px 6px 0 #000;
   }
   .wrap{position:relative; width:min(96vw,720px);}
-  canvas{
+  #c{
     width:100%; display:block; background:#0c111d;
     border:4px solid var(--edge); border-radius:0;
     image-rendering:pixelated; touch-action:none; cursor:crosshair;
@@ -445,7 +445,7 @@ function setPixel(elm, text, px, color, shadow){
 
 // ---------- Controls ----------
 const el=id=>document.getElementById(id);
-const LABELS={ add:'ADD SAND', dig:'DIG', hand:'HAND' };
+const LABELS={ add:'ADD', dig:'DIG', hand:'SHIFT' };
 function refreshTools(){
   document.querySelectorAll('.tool').forEach(b=>{
     const on=b.classList.contains('active');
