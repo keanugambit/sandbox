@@ -35,7 +35,6 @@
     image-rendering:pixelated; touch-action:none; cursor:crosshair;
     box-shadow:0 8px 0 #05070d, 8px 8px 0 #05070d;
   }
-
   .panel{
     width:min(96vw,780px); min-height:132px; background:#161d33; border:5px solid var(--edge); border-radius:0;
     padding:26px 28px; display:flex; flex-wrap:wrap; gap:24px; align-items:center; justify-content:center;
@@ -43,7 +42,6 @@
   }
   .group{display:flex; align-items:center; gap:14px}
   .tools{display:flex; gap:16px}
-
   /* ---- pixel buttons: hard bevel + solid shadow slab beneath (unpressed) ---- */
   .tool,.reset{
     font-family:var(--font); line-height:1; cursor:pointer;
@@ -60,7 +58,6 @@
   .tool:hover{ filter:brightness(1.14); }
   .tool.active{ background:var(--gold); color:var(--edge); --btn-sh:var(--gold-dk); }
   .reset{ background:var(--red); color:#fff; --btn-sh:var(--red-dk); }
-
   /* pressed: drop down and lose the shadow slab */
   .tool:active,.reset:active{
     transform:translateY(6px);
@@ -68,11 +65,9 @@
       inset 3px 3px 0 #ffffff40,
       inset -3px -3px 0 #00000055;
   }
-
   label{white-space:nowrap; color:var(--ink)}
   .val{min-width:52px; text-align:left; color:var(--gold)}
   .sep{width:5px; height:52px; background:var(--edge)}
-
   /* ---- pixel sliders ---- */
   input[type=range]{
     -webkit-appearance:none; appearance:none;
@@ -95,7 +90,6 @@
     width:20px; height:30px; background:var(--gold);
     border:4px solid var(--edge); border-radius:0; box-shadow:0 5px 0 0 var(--edge);
   }
-
   .hint{text-align:center; max-width:100%}
 </style>
 </head>
@@ -104,7 +98,6 @@
   <div class="wrap">
     <canvas id="c" width="720" height="620"></canvas>
   </div>
-
   <div class="panel">
     <div class="tools" id="tools">
       <button class="tool active" data-tool="add">Add sand</button>
@@ -114,7 +107,7 @@
     <div class="sep"></div>
     <div class="group">
       <label for="tilt">Tilt box</label>
-      <input type="range" id="tilt" min="-60" max="60" value="0" step="5">
+      <input type="range" id="tilt" min="-180" max="180" value="0" step="1">
       <span class="val" id="tiltv">0°</span>
     </div>
     <div class="group">
@@ -126,34 +119,26 @@
     <button class="reset" id="reset">Reset</button>
   </div>
   <div class="hint"></div>
-
 <script>
 (() => {
 "use strict";
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
-
 // ---------- Grid / box config ----------
 const CELL = 4;                 // display px per cell
 const bw = 520, bh = 380;       // box size in px
 const W = bw / CELL, H = bh / CELL; // grid cells (130 x 95)
 const cx = canvas.width/2, cy = canvas.height/2;
-
 const EMPTY = 0, SAND = 1;
 const grid  = new Uint8Array(W*H);
 const shade = new Uint8Array(W*H);
 const moved = new Uint8Array(W*H);
-const top   = new Int32Array(W);   // surface height of each column (for repose slope)
-
-// Angle of repose ("cleave angle"): sand rests at ~30 degrees.
-// A resting surface grain topples sideways if the surface REACH cells over
-// is lower than it by more than MAXDROP, giving a stable slope MAXDROP/REACH.
+// Angle of repose ("cleave angle"): sand rests at ~30 degrees, measured along
+// the TRUE gravity direction, so it holds at any tilt (full 360 rotation).
 const REACH = 5, MAXDROP = 3;      // atan(3/5) -> ~30 degrees
-
 let A = 0;        // tilt angle in degrees (box rotation, clockwise +)
 let tool = 'add';
 let brush = 7;
-
 // ---------- Sand physics (rotating-gravity cellular automaton) ----------
 const DIRS = [[0,1],[1,1],[1,0],[1,-1],[0,-1],[-1,-1],[-1,0],[-1,1]];
 const ANG  = [0,45,90,135,180,-135,-90,-45];
@@ -167,29 +152,38 @@ function neighborsFor(theta){
   else { downhill=b; uphill=a; }
   return { primary:DIRS[best], downhill:DIRS[downhill], uphill:DIRS[uphill] };
 }
-
-function computeTop(){
-  for(let x=0;x<W;x++){
-    top[x]=H;
-    for(let y=0;y<H;y++){ if(grid[y*W+x]===SAND){ top[x]=y; break; } }
+// gravity (gx,gy) and the perpendicular "surface" direction (pxu,pyu), refreshed each step
+let gx=0, gy=1, pxu=-1, pyu=0;
+// shallowest sand depth along gravity, per perpendicular lane (the surface profile)
+const QOFF = W+H, QLEN = 2*(W+H)+1;
+const minD = new Float64Array(QLEN);
+function computeMinD(){
+  for(let i=0;i<QLEN;i++) minD[i]=Infinity;
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+    if(grid[y*W+x]!==SAND) continue;
+    const q=(Math.round(x*pxu+y*pyu)+QOFF), d=x*gx+y*gy;
+    if(d<minD[q]) minD[q]=d;
   }
 }
-
 function step(){
   moved.fill(0);
-  computeTop();
+  const rad=A*Math.PI/180; gx=Math.sin(rad); gy=Math.cos(rad); pxu=-gy; pyu=gx;
+  const sgx = gx>1e-9?1:(gx<-1e-9?-1:0), sgy = gy>1e-9?1:(gy<-1e-9?-1:0);
+  computeMinD();
   const N = neighborsFor(A);
-  const bias = Math.min(1, Math.abs(A)/25);
-  const pDown = 0.5 + 0.5*bias;   // chance to try the more-downhill slide first
-  const sideBias = A>0 ? 1 : (A<0 ? -1 : 0);   // downhill side under tilt
-  for(let y=H-1;y>=0;y--){
-    const l2r = Math.random()<0.5;
-    for(let k=0;k<W;k++){
-      const x = l2r ? k : W-1-k;
+  let r=((A%45)+45)%45; if(r>22.5) r-=45;
+  const pDown = 0.5 + 0.5*Math.min(1, Math.abs(r)/22.5);   // lean toward the low side
+  const highYfirst = sgy>0 ? true : (sgy<0 ? false : (Math.random()<0.5));
+  const upx=Math.round(-gx), upy=Math.round(-gy);          // toward the surface (opposite gravity)
+  const pstepx=Math.round(pxu), pstepy=Math.round(pyu);    // one step along the surface
+  for(let yi=0;yi<H;yi++){
+    const y = highYfirst ? (H-1-yi) : yi;
+    const rowHighX = sgx>0 ? true : (sgx<0 ? false : (Math.random()<0.5));
+    for(let xi=0;xi<W;xi++){
+      const x = rowHighX ? (W-1-xi) : xi;
       const idx = y*W+x;
       if(grid[idx]!==SAND || moved[idx]) continue;
-
-      // 1) fall / slide with gravity
+      // 1) fall / slide in the gravity direction
       const first  = (Math.random()<pDown) ? N.downhill : N.uphill;
       const second = (first===N.downhill) ? N.uphill : N.downhill;
       const cand = [N.primary, first, second];
@@ -205,17 +199,20 @@ function step(){
         }
       }
       if(did) continue;
-
-      // 2) angle-of-repose toppling: only surface grains slide sideways
-      if(y>0 && grid[(y-1)*W+x]===SAND) continue;
-      const sf = sideBias!==0 ? sideBias : (Math.random()<0.5 ? 1 : -1);
-      for(const s of [sf, -sf]){
-        const cxs = x + s*REACH;
-        if(cxs<0 || cxs>=W) continue;
-        if(top[cxs] - y > MAXDROP){          // that side is too steep -> topple
-          const nx = x + s;
-          if(nx<0 || nx>=W) continue;
-          const nidx = y*W+nx;
+      // 2) angle-of-repose relaxation, measured along gravity (surface grains only)
+      const ax=x+upx, ay=y+upy;
+      if(ax>=0&&ax<W&&ay>=0&&ay<H&&grid[ay*W+ax]===SAND) continue;   // buried, skip
+      const q0=Math.round(x*pxu+y*pyu)+QOFF, d0=x*gx+y*gy;
+      const qA=q0+REACH, qB=q0-REACH;
+      const dA=(qA>=0&&qA<QLEN)?minD[qA]:Infinity;
+      const dB=(qB>=0&&qB<QLEN)?minD[qB]:Infinity;
+      const order = dA>=dB ? [[1,dA],[-1,dB]] : [[-1,dB],[1,dA]];    // slide toward the lower side
+      for(let o=0;o<2;o++){
+        const s=order[o][0], dn=order[o][1];
+        if(dn - d0 > MAXDROP){                     // that side is too steep -> slide along surface
+          const nx=x+s*pstepx, ny=y+s*pstepy;
+          if(nx<0||nx>=W||ny<0||ny>=H) continue;
+          const nidx=ny*W+nx;
           if(grid[nidx]===EMPTY && !moved[nidx]){
             grid[nidx]=SAND; shade[nidx]=shade[idx]; moved[nidx]=1;
             grid[idx]=EMPTY;
@@ -226,7 +223,6 @@ function step(){
     }
   }
 }
-
 // ---------- Tools ----------
 function paintSand(ccx,ccy,R,on){
   const R2=R*R;
@@ -241,7 +237,6 @@ function paintSand(ccx,ccy,R,on){
     }
   }
 }
-
 function handTool(ccx,ccy,R,dx,dy){
   const R2=R*R;
   const list=[];
@@ -273,7 +268,6 @@ function handTool(ccx,ccy,R,dx,dy){
     }
   }
 }
-
 // ---------- Pointer ----------
 const ptr = { down:false, col:0, row:0, pcol:0, prow:0, sx:0, sy:0, inside:false };
 function toLocal(clientX,clientY){
@@ -299,13 +293,11 @@ canvas.addEventListener('pointerdown', e=>{ canvas.setPointerCapture(e.pointerId
 canvas.addEventListener('pointermove', updatePtr);
 addEventListener('pointerup', ()=>{ ptr.down=false; });
 canvas.addEventListener('pointerleave', ()=>{ ptr.inside=false; });
-
 // ---------- Offscreen sand raster ----------
 const off = document.createElement('canvas'); off.width=W; off.height=H;
 const offctx = off.getContext('2d');
 const img = offctx.createImageData(W,H);
 const data = img.data;
-
 function rasterize(){
   for(let i=0;i<W*H;i++){
     const o=i*4;
@@ -321,32 +313,25 @@ function rasterize(){
   }
   offctx.putImageData(img,0,0);
 }
-
 // ---------- Render ----------
 function roundRect(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
-
 function render(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
   ctx.save();
   ctx.translate(cx,cy);
   ctx.rotate(A*Math.PI/180);
-
   // box interior
   ctx.fillStyle='#14100a';
   roundRect(-bw/2-6,-bh/2-6,bw+12,bh+12,12); ctx.fill();
-
   // sand (scaled from tiny offscreen, crisp)
   ctx.imageSmoothingEnabled=false;
   ctx.drawImage(off, -bw/2, -bh/2, bw, bh);
-
   // box frame (wooden)
   ctx.lineWidth=8; ctx.strokeStyle='#8a5a2b';
   roundRect(-bw/2-6,-bh/2-6,bw+12,bh+12,12); ctx.stroke();
   ctx.lineWidth=2; ctx.strokeStyle='#c98b4b';
   roundRect(-bw/2-2,-bh/2-2,bw+4,bh+4,9); ctx.stroke();
-
   ctx.restore();
-
   // brush cursor
   if(ptr.inside){
     ctx.save();
@@ -357,7 +342,6 @@ function render(){
     ctx.restore();
   }
 }
-
 // ---------- Main loop ----------
 function frame(){
   if(ptr.down && ptr.inside){
@@ -370,7 +354,6 @@ function frame(){
   render();
   requestAnimationFrame(frame);
 }
-
 // ---------- Pixel bitmap font (real pixels, drawn as blocks) ----------
 const GLYPHS = {
 ' ':["00000","00000","00000","00000","00000","00000","00000"],
@@ -442,7 +425,6 @@ function setPixel(elm, text, px, color, shadow){
   elm.textContent='';
   elm.appendChild(pixelCanvas(text,px,color,shadow));
 }
-
 // ---------- Controls ----------
 const el=id=>document.getElementById(id);
 const LABELS={ add:'ADD', dig:'DIG', hand:'SHIFT' };
@@ -461,7 +443,6 @@ el('tools').addEventListener('click', e=>{
 el('tilt').addEventListener('input', e=>{ A=+e.target.value; setPixel(el('tiltv'), A+'°', 3, '#ffcf4d'); });
 el('brush').addEventListener('input', e=>{ brush=+e.target.value; setPixel(el('brushv'), ''+brush, 3, '#ffcf4d'); });
 el('reset').addEventListener('click', reset);
-
 function initPixelUI(){
   setPixel(document.querySelector('h1'), 'SAND BOX', 6, '#ffcf4d', '#05070d');
   setPixel(document.querySelector('label[for=tilt]'),  'TILT BOX', 3, '#f4ecd8');
@@ -473,14 +454,12 @@ function initPixelUI(){
   setPixel(el('tiltv'), A+'°', 3, '#ffcf4d');
   setPixel(el('brushv'), ''+brush, 3, '#ffcf4d');
 }
-
 function reset(){
   grid.fill(EMPTY);
   const t=Math.floor(H*0.55);
   for(let y=t;y<H;y++) for(let x=0;x<W;x++){ grid[y*W+x]=SAND; shade[y*W+x]=(90+Math.random()*160)|0; }
   A=0; el('tilt').value=0; setPixel(el('tiltv'), '0°', 3, '#ffcf4d');
 }
-
 reset();
 initPixelUI();
 requestAnimationFrame(frame);
