@@ -447,25 +447,22 @@ el('tools').addEventListener('click', e=>{
   document.querySelectorAll('.tool').forEach(t=>t.classList.toggle('active', t===b));
   refreshTools();
 });
-el('tilt').addEventListener('input', e=>{ A=+e.target.value; setPixel(el('tiltv'), A+'°', 3, '#ffcf4d'); });
 el('brush').addEventListener('input', e=>{ brush=+e.target.value; setPixel(el('brushv'), ''+brush, 3, '#ffcf4d'); });
 el('reset').addEventListener('click', reset);
 function initPixelUI(){
   setPixel(document.querySelector('h1'), 'SAND BOX', 6, '#ffcf4d', '#05070d');
-  setPixel(document.querySelector('label[for=tilt]'),  'TILT BOX', 3, '#f4ecd8');
   setPixel(document.querySelector('label[for=brush]'), 'BRUSH',    3, '#f4ecd8');
   setPixel(el('reset'), 'RESET', 4, '#ffffff');
   setPixel(document.querySelector('.hint'),
-    'PICK A TOOL AND DRAG ON THE BOX. TILT TO SLIDE.', 2, '#b9c3e0');
+    'PICK A TOOL AND DRAG ON THE BOX.', 2, '#b9c3e0');
   refreshTools();
-  setPixel(el('tiltv'), A+'°', 3, '#ffcf4d');
   setPixel(el('brushv'), ''+brush, 3, '#ffcf4d');
 }
 function reset(){
   grid.fill(EMPTY);
   const t=Math.floor(H*0.55);
   for(let y=t;y<H;y++) for(let x=0;x<W;x++){ grid[y*W+x]=SAND; shade[y*W+x]=(90+Math.random()*160)|0; }
-  A=0; el('tilt').value=0; setPixel(el('tiltv'), '0°', 3, '#ffcf4d');
+  A=0;
 }
 reset();
 initPixelUI();
